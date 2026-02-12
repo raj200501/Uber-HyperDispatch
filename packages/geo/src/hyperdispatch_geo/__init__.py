@@ -1,3 +1,3 @@
-from .grid import GridIndex, haversine_m
+from .grid import GeoGridIndex, haversine_km
 
-__all__ = ["GridIndex", "haversine_m"]
+__all__ = ["GeoGridIndex", "haversine_km"]

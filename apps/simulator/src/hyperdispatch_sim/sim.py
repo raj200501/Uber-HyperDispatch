@@ -3,32 +3,55 @@ from __future__ import annotations
 import random
 import time
 
-from hyperdispatch_protocol import Driver, DriverStatus, LatLng, MatchRequest
+from hyperdispatch_protocol import Driver, DriverStatus, RidePreferences, RideRequest
+
+from .scenarios import get_scenario
 
 
 class DeterministicSim:
-    def __init__(self, seed: int = 1337):
+    def __init__(self, seed: int = 1337, city_id: str = "sf", scenario: str = "baseline_city"):
         self.rng = random.Random(seed)
+        self.city_id = city_id
+        self.scenario = get_scenario(scenario)
+
+    def _hotspot(self) -> tuple[float, float]:
+        if self.rng.random() < self.scenario.hotspot_bias:
+            return 37.78 + self.rng.uniform(-0.01, 0.01), -122.41 + self.rng.uniform(-0.015, 0.015)
+        return 37.70 + self.rng.random() * 0.15, -122.52 + self.rng.random() * 0.17
 
     def spawn_drivers(self, n: int) -> list[Driver]:
-        out = []
+        now = int(time.time() * 1000)
+        items: list[Driver] = []
         for i in range(n):
-            out.append(
+            lat, lon = self._hotspot()
+            items.append(
                 Driver(
                     id=f"d{i}",
-                    location=LatLng(lat=37.76 + self.rng.random() * 0.04, lng=-122.45 + self.rng.random() * 0.06),
-                    heading_deg=self.rng.random() * 360,
-                    speed_mps=6 + self.rng.random() * 4,
                     status=DriverStatus.AVAILABLE,
-                    last_update_ms=int(time.time() * 1000),
+                    lat=lat,
+                    lon=lon,
+                    heading=self.rng.random() * 360,
+                    speed_mps=(6 + self.rng.random() * 8) * self.scenario.speed_factor,
+                    last_update_ts=now,
+                    city_id=self.city_id,
+                    idle_since_ts=now - self.rng.randint(0, 120_000),
                 )
             )
-        return out
+        return items
 
-    def random_request(self, i: int) -> MatchRequest:
-        return MatchRequest(
-            rider_id=f"r{i}",
-            pickup=LatLng(lat=37.76 + self.rng.random() * 0.04, lng=-122.45 + self.rng.random() * 0.06),
-            dropoff=LatLng(lat=37.74 + self.rng.random() * 0.08, lng=-122.47 + self.rng.random() * 0.08),
-            constraints={},
+    def request(self, idx: int) -> RideRequest:
+        now = int(time.time() * 1000)
+        pickup_lat, pickup_lon = self._hotspot()
+        dropoff_lat, dropoff_lon = self._hotspot()
+        return RideRequest(
+            id=f"req-{idx}",
+            rider_id=f"r-{idx}",
+            created_ts=now,
+            max_pickup_km=2.2 + self.rng.random() * self.scenario.demand_rate,
+            preferences=RidePreferences(quiet_mode=bool(idx % 2), accessibility=bool(idx % 3 == 0)),
+            city_id=self.city_id,
+            pickup_lat=pickup_lat,
+            pickup_lon=pickup_lon,
+            dropoff_lat=dropoff_lat,
+            dropoff_lon=dropoff_lon,
         )

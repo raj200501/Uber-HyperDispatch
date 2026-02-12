@@ -1,24 +1,22 @@
-# uber-hyperdispatch / HyperDispatch
+# Uber HyperDispatch Control Tower
 
-Real-time ride matching monorepo with FastAPI, SQLite WAL, custom geo grid index, simulator, and React ops dashboard.
+A deterministic dispatch simulation platform with a control-tower style UI, bounded geospatial indexing, replay/diff workflows, and CI-oriented verification.
 
-## Quickstart
-- `make bootstrap`
-- `make verify`
-- `make demo`
+## 60-second quickstart
+1. `make bootstrap`
+2. `make verify`
+3. `make demo`
+4. Open `http://127.0.0.1:5173`
 
-## Architecture
+## Commands
+- `make bootstrap` — setup root venv and web deps
+- `make verify` — python lint/tests (+ web checks when deps are present)
+- `make demo` — run API + simulator + web
+- `make loc` — line counts by area
 
-```
-simulator -> API (REST) -> SQLite + GridIndex
-                     -> WS /ws/world -> Web dashboard
-```
-
-## System design talking points
-- Custom in-memory cell grid for low-latency candidate retrieval
-- Per-driver async locks for atomic match assignment
-- Snapshot streaming at 5Hz for smooth ops visibility
-
-## Notes
-- Zero API keys: OSM tiles via Leaflet.
-- CI contract: `make verify`.
+## Interview talking points
+- **Latency**: bounded candidate search with k-ring expansion and scan counters.
+- **Indexing**: O(1) insert/update/remove in `GeoGridIndex`.
+- **Replay**: deterministic replay and diff for confidence and regressions.
+- **Determinism**: single seeded PRNG in simulator.
+- **Backpressure-ready UI model**: separate world/events/traces streams.

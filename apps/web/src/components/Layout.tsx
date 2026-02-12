@@ -1,18 +1,42 @@
-import { Link, Outlet } from 'react-router-dom'
+import { NavLink, Outlet } from 'react-router-dom'
 import { useWorld } from '../store/world-store'
 
-const pages = ['map','dispatch','drivers','riders','trips','metrics','traces','geo','sim','settings']
+const navItems = [
+  ['map', 'Live Map'],
+  ['dispatch-queue', 'Dispatch Queue'],
+  ['matching-analytics', 'Matching Analytics'],
+  ['heatmap', 'Supply vs Demand'],
+  ['drivers', 'Driver Explorer'],
+  ['riders', 'Rider Explorer'],
+  ['replay', 'Replay Studio'],
+  ['traces', 'Trace Explorer'],
+  ['incidents', 'Incidents'],
+  ['simulator', 'Simulator Control'],
+  ['geo-debugger', 'Geo Index Debugger'],
+  ['settings', 'Settings'],
+  ['ui-kit', 'UI Kit'],
+]
 
 export function Layout() {
   const { state } = useWorld()
-  return <div style={{display:'flex',height:'100vh',background:'#111',color:'#eee'}}>
-    <aside style={{width:220,padding:12,borderRight:'1px solid #333'}}>
-      <h2>HyperDispatch</h2>
-      {pages.map(p => <div key={p}><Link to={`/${p}`} style={{color:'#bbb'}}>{p}</Link></div>)}
-    </aside>
-    <main style={{flex:1,padding:12}}>
-      <div>WS: {state.connected ? 'connected':'offline'}</div>
-      <Outlet/>
-    </main>
-  </div>
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', minHeight: '100vh' }}>
+      <aside style={{ padding: 14, borderRight: '1px solid #223140', background: '#101722' }}>
+        <h2 style={{ marginTop: 0 }}>Uber HyperDispatch</h2>
+        <p className="muted">Control Tower</p>
+        {navItems.map(([path, label]) => (
+          <div key={path} style={{ marginBottom: 8 }}>
+            <NavLink to={`/${path}`}>{label}</NavLink>
+          </div>
+        ))}
+      </aside>
+      <main style={{ padding: 14 }}>
+        <div className="panel" style={{ marginBottom: 12, padding: 10, display: 'flex', justifyContent: 'space-between' }}>
+          <span>Status: {state.connected ? 'Connected' : 'Offline'}</span>
+          <span className="muted">Drivers: {state.snapshot?.drivers.length ?? 0} | Riders: {state.snapshot?.riders.length ?? 0}</span>
+        </div>
+        <Outlet />
+      </main>
+    </div>
+  )
 }

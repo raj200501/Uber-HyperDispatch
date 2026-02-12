@@ -3,30 +3,31 @@ from __future__ import annotations
 import argparse
 import time
 
-import httpx
+from hyperdispatch_sim.scenarios import list_scenarios
+from hyperdispatch_sim.sim import DeterministicSim
 
-from .sim import DeterministicSim
 
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=int, default=1337)
+    parser.add_argument("--drivers", type=int, default=20)
+    parser.add_argument("--requests", type=int, default=30)
+    parser.add_argument("--scenario", type=str, default="baseline_city", choices=list_scenarios())
+    parser.add_argument("--live", action="store_true")
+    args = parser.parse_args()
 
-def run(base_url: str, drivers: int, riders: int, seed: int = 1337) -> None:
-    sim = DeterministicSim(seed)
-    client = httpx.Client(base_url=base_url, timeout=5.0)
-    client.post("/api/sim/reset")
-    for d in sim.spawn_drivers(drivers):
-        client.post(f"/api/driver/{d.id}/location", json=d.model_dump())
-    i = 0
+    sim = DeterministicSim(args.seed, scenario=args.scenario)
+    drivers = sim.spawn_drivers(args.drivers)
+    print(f"seed={args.seed} scenario={args.scenario} drivers={len(drivers)}")
+    req_idx = 0
     while True:
-        req = sim.random_request(i % max(riders, 1))
-        client.post("/api/request-ride", json=req.model_dump())
-        i += 1
+        req = sim.request(req_idx)
+        print(f"request={req.id} pickup=({req.pickup_lat:.4f},{req.pickup_lon:.4f})")
+        req_idx += 1
+        if not args.live and req_idx >= args.requests:
+            break
         time.sleep(0.2)
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser()
-    p.add_argument("--base-url", default="http://127.0.0.1:8000")
-    p.add_argument("--drivers", type=int, default=20)
-    p.add_argument("--riders", type=int, default=10)
-    p.add_argument("--seed", type=int, default=1337)
-    args = p.parse_args()
-    run(args.base_url, args.drivers, args.riders, args.seed)
+    main()

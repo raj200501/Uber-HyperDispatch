@@ -1,11 +1,15 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from pydantic import BaseModel, Field
+from typing import Any
 
 
 class DriverStatus(str, Enum):
     AVAILABLE = "AVAILABLE"
-    MATCHED = "MATCHED"
+    ENROUTE = "ENROUTE"
     ON_TRIP = "ON_TRIP"
+    OFFLINE = "OFFLINE"
 
 
 class RiderStatus(str, Enum):
@@ -13,83 +17,124 @@ class RiderStatus(str, Enum):
     MATCHED = "MATCHED"
     PICKED_UP = "PICKED_UP"
     DROPPED_OFF = "DROPPED_OFF"
+    CANCELED = "CANCELED"
 
 
-class TripStatus(str, Enum):
+class DispatchEventType(str, Enum):
+    DRIVER_UPDATE = "DRIVER_UPDATE"
+    RIDER_REQUEST = "RIDER_REQUEST"
     MATCHED = "MATCHED"
-    ON_TRIP = "ON_TRIP"
-    COMPLETED = "COMPLETED"
+    CANCELED = "CANCELED"
+    PICKUP = "PICKUP"
+    DROPOFF = "DROPOFF"
+    ANOMALY = "ANOMALY"
 
 
-class LatLng(BaseModel):
-    lat: float = Field(ge=-90, le=90)
-    lng: float = Field(ge=-180, le=180)
+@dataclass(slots=True)
+class SimBounds:
+    min_lat: float
+    min_lon: float
+    max_lat: float
+    max_lon: float
 
 
-class Driver(BaseModel):
+@dataclass(slots=True)
+class City:
     id: str
-    location: LatLng
-    heading_deg: float
-    speed_mps: float
+    name: str
+    center_lat: float
+    center_lon: float
+    sim_bounds: SimBounds
+
+
+@dataclass(slots=True)
+class Driver:
+    id: str
     status: DriverStatus
-    last_update_ms: int
+    lat: float
+    lon: float
+    heading: float
+    speed_mps: float
+    last_update_ts: int
+    city_id: str
+    idle_since_ts: int = 0
 
 
-class Rider(BaseModel):
+@dataclass(slots=True)
+class Rider:
     id: str
-    location: LatLng
     status: RiderStatus
-    requested_at_ms: int
+    lat: float
+    lon: float
+    request_ts: int
+    city_id: str
 
 
-class Trip(BaseModel):
+@dataclass(slots=True)
+class RidePreferences:
+    quiet_mode: bool = False
+    accessibility: bool = False
+
+
+@dataclass(slots=True)
+class RideRequest:
     id: str
     rider_id: str
+    created_ts: int
+    max_pickup_km: float
+    preferences: RidePreferences
+    city_id: str
+    pickup_lat: float
+    pickup_lon: float
+    dropoff_lat: float
+    dropoff_lon: float
+
+
+@dataclass(slots=True)
+class MatchDecision:
+    request_id: str
     driver_id: str
-    status: TripStatus
-    pickup: LatLng
-    dropoff: LatLng
-    created_at_ms: int
-
-
-class MatchRequest(BaseModel):
-    rider_id: str
-    pickup: LatLng
-    dropoff: LatLng
-    constraints: dict[str, str | int | float | bool] = Field(default_factory=dict)
-
-
-class MatchDecision(BaseModel):
-    trip_id: str
-    driver_id: str
-    rider_id: str
+    score: float
+    reasons: list[str]
+    candidate_count: int
     pickup_eta_s: float
-    distance_m: float
-    trace_id: str
 
 
-class TraceSpan(BaseModel):
+@dataclass(slots=True)
+class DispatchEvent:
+    ts: int
+    type: DispatchEventType
+    city_id: str
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class TraceSpan:
     trace_id: str
     span_id: str
-    parent_id: str | None = None
+    parent_span_id: str | None
     name: str
-    start_ms: int
-    end_ms: int
-    attrs: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    start_ns: int
+    end_ns: int
+    tags: dict[str, Any] = field(default_factory=dict)
+    logs: list[str] = field(default_factory=list)
 
 
-class WorldMetrics(BaseModel):
-    matches_per_min: float
-    avg_pickup_eta_s: float
-    waiting_riders: int
-    available_drivers: int
-    match_failures: int
-    retries: int
-
-
-class WorldSnapshot(BaseModel):
-    ts_ms: int
+@dataclass(slots=True)
+class WorldSnapshot:
+    ts: int
     drivers: list[Driver]
     riders: list[Rider]
-    trips: list[Trip]
-    metrics: WorldMetrics
+    requests: list[RideRequest]
+
+
+def to_dict(value: Any) -> Any:
+    if hasattr(value, "__dataclass_fields__"):
+        return asdict(value)
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, list):
+        return [to_dict(v) for v in value]
+    if isinstance(value, dict):
+        return {k: to_dict(v) for k, v in value.items()}
+    return value

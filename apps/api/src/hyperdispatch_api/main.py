@@ -1,105 +1,58 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket
-from fastapi.middleware.cors import CORSMiddleware
-from hyperdispatch_protocol import Driver, MatchRequest
+from hyperdispatch_protocol import Driver, RidePreferences, RideRequest, to_dict
 
 from .engine import DispatchEngine
-
-app = FastAPI(title="HyperDispatch API")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-engine = DispatchEngine(Path(".hyperdispatch/hyperdispatch.db"))
+from .repository import DispatchRepository
 
 
-@app.on_event("startup")
-async def startup() -> None:
-    async def broadcaster() -> None:
-        while True:
-            if engine.ws_clients:
-                payload = engine.snapshot().model_dump_json()
-                dead = []
-                for ws in engine.ws_clients:
-                    try:
-                        await ws.send_text(payload)
-                    except Exception:
-                        dead.append(ws)
-                for ws in dead:
-                    engine.ws_clients.discard(ws)
-            await asyncio.sleep(0.2)
+class HyperDispatchApp:
+    def __init__(self, db_path: Path | str = ":memory:"):
+        self.repo = DispatchRepository(db_path)
+        self.engine = DispatchEngine(self.repo)
 
-    asyncio.create_task(broadcaster())
+    def healthz(self) -> dict[str, bool]:
+        return {"ok": True}
 
+    def readyz(self) -> dict[str, bool]:
+        return {"ready": True}
 
-@app.get("/healthz")
-def healthz():
-    return {"ok": True}
+    def world(self) -> dict[str, object]:
+        return to_dict(self.engine.world())
 
+    def upsert_driver(self, payload: dict[str, object]) -> dict[str, str]:
+        driver = Driver(**payload)
+        self.engine.add_driver(driver)
+        return {"status": "ok"}
 
-@app.get("/api/world")
-def world():
-    return engine.snapshot()
+    def request_ride(self, payload: dict[str, object]) -> dict[str, object]:
+        prefs_payload = payload.get("preferences") or {}
+        payload = {**payload, "preferences": RidePreferences(**prefs_payload)}
+        request = RideRequest(**payload)
+        return to_dict(self.engine.match_request(request))
 
+    def replay_start(self, seed: int, scenario: str, city_id: str) -> dict[str, str]:
+        return {"run_id": self.engine.replay_start(seed=seed, scenario=scenario, city_id=city_id)}
 
-@app.websocket("/ws/world")
-async def ws_world(ws: WebSocket):
-    await ws.accept()
-    engine.ws_clients.add(ws)
-    try:
-        while True:
-            await ws.receive_text()
-    except Exception:
-        engine.ws_clients.discard(ws)
+    def replay_stop(self, run_id: str | None = None) -> dict[str, str]:
+        return {"run_id": self.engine.replay_stop(run_id=run_id)}
 
+    def replay_runs(self) -> list[dict[str, object]]:
+        return self.engine.replay_runs()
 
-@app.post("/api/request-ride")
-async def request_ride(req: MatchRequest):
-    try:
-        return await engine.request_ride(req)
-    except ValueError as e:
-        raise HTTPException(409, str(e)) from e
+    def replay_events(self, run_id: str | None = None, from_ts: int = 0) -> list[dict[str, object]]:
+        return [to_dict(evt) for evt in self.engine.replay_events(run_id=run_id, from_ts=from_ts)]
 
+    def replay_rerun(self, run_id: str) -> dict[str, object]:
+        return self.engine.replay_run(run_id)
 
-@app.post("/api/driver/{driver_id}/location")
-def driver_location(driver_id: str, driver: Driver):
-    if driver_id != driver.id:
-        raise HTTPException(400, "id mismatch")
-    engine.upsert_driver(driver)
-    return {"ok": True}
+    def traces(self) -> list[dict[str, object]]:
+        return [to_dict(span) for span in self.repo.list_spans()]
+
+    def metrics(self) -> str:
+        return self.engine.metrics_text()
 
 
-@app.post("/api/rider/{rider_id}/location")
-def rider_location(rider_id: str, payload: dict):
-    return {"ok": True, "id": rider_id, "payload": payload}
-
-
-@app.post("/api/sim/reset")
-def reset():
-    engine.db.reset()
-    engine.grid = engine.grid.__class__(300)
-    return {"ok": True}
-
-
-@app.get("/api/trips")
-def trips():
-    return engine.list_trips()
-
-
-@app.get("/api/trips/{trip_id}")
-def trip(trip_id: str):
-    matches = [t for t in engine.list_trips() if t.id == trip_id]
-    if not matches:
-        raise HTTPException(404)
-    return matches[0]
-
-
-@app.get("/api/traces/{trace_id}")
-def traces(trace_id: str):
-    return engine.trace(trace_id)
-
-
-@app.get("/api/metrics")
-def metrics():
-    return engine.metrics()
+app = HyperDispatchApp(Path(".hyperdispatch.db"))

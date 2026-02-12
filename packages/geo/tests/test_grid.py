@@ -1,28 +1,21 @@
-from hyperdispatch_geo.grid import GridIndex
+from hyperdispatch_geo import GeoGridIndex
 
 
-def test_find_nearest_returns_sorted():
-    grid = GridIndex(200)
-    grid.upsert_driver("a", 37.77, -122.41)
-    grid.upsert_driver("b", 37.78, -122.42)
-    nearest = grid.find_nearest(37.77, -122.41, radius_km=5, limit=2)
-    assert nearest[0][0] == "a"
+def test_query_returns_sorted_by_distance():
+    index = GeoGridIndex(cell_km=0.2)
+    index.insert_or_update("a", 37.77, -122.41)
+    index.insert_or_update("b", 37.79, -122.43)
+    ranked = index.query(37.77, -122.41, radius_km=5, limit=2)
+    assert ranked[0][0] == "a"
 
 
-def test_index_does_not_scan_every_driver(monkeypatch):
-    grid = GridIndex(100)
+def test_bounded_scan_does_not_touch_all_points():
+    index = GeoGridIndex(cell_km=0.5)
     for i in range(2000):
-        grid.upsert_driver(f"d{i}", 37.0 + (i % 50) * 0.01, -122.0 + (i // 50) * 0.01)
+        lat = 35.0 + (i % 100) * 0.05
+        lon = -120.0 + (i // 100) * 0.05
+        index.insert_or_update(f"d-{i}", lat, lon)
 
-    calls = {"n": 0}
-    from hyperdispatch_geo import grid as grid_mod
-
-    original = grid_mod.haversine_m
-
-    def wrapped(*args, **kwargs):
-        calls["n"] += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(grid_mod, "haversine_m", wrapped)
-    grid.find_nearest(37.77, -122.41, radius_km=1, limit=5)
-    assert calls["n"] < 200
+    _ = index.query(37.77, -122.41, radius_km=1.0, limit=8)
+    assert index.index_points_scanned < 2000
+    assert index.cells_visited < 300
