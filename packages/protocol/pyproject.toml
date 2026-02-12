@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hyperdispatch-protocol"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["pydantic>=2.6,<3"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
