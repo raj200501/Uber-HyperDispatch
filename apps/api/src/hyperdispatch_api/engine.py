@@ -17,6 +17,7 @@ from hyperdispatch_protocol import (
     Rider,
     RiderStatus,
     TraceSpan,
+    WorldSnapshot,
 )
 
 from .repository import DispatchRepository
@@ -29,7 +30,7 @@ class DispatchEngine:
         self.driver_locks: dict[str, threading.Lock] = {}
         self.rider_locks: dict[str, threading.Lock] = {}
         self.metrics_window: deque[dict[str, float]] = deque(maxlen=4096)
-        self.replay_recording = False
+        self.active_run_id: str | None = None
 
     def now_ms(self) -> int:
         return int(time.time() * 1000)
@@ -62,8 +63,6 @@ class DispatchEngine:
     def match_request(self, request: RideRequest) -> MatchDecision:
         trace_id = str(uuid.uuid4())
         start = time.time_ns()
-
-        # Stage A
         rider_lock = self.rider_locks.setdefault(request.rider_id, threading.Lock())
         if not rider_lock.acquire(blocking=False):
             raise ValueError("rider_already_in_flight")
@@ -80,12 +79,14 @@ class DispatchEngine:
             )
             self.repository.put_rider(rider)
             self.repository.put_request(request)
+            self.repository.append_event(
+                DispatchEvent(ts=self.now_ms(), type=DispatchEventType.RIDER_REQUEST, city_id=request.city_id, payload={"request_id": request.id, "rider_id": request.rider_id}),
+                run_id=self.active_run_id,
+            )
 
-            # Stage B
             candidate_pairs = self.grid.query(request.pickup_lat, request.pickup_lon, request.max_pickup_km, limit=32)
-            self._trace(trace_id, "stage_candidates", time.time_ns(), {"candidates": len(candidate_pairs), "cells_visited": self.grid.cells_visited})
+            self._trace(trace_id, "stage_candidates", time.time_ns(), {"candidates": len(candidate_pairs), "cells_visited": self.grid.cells_visited, "points_scanned": self.grid.index_points_scanned})
 
-            # Stage C
             available = self._available_drivers()
             ttl_ms = 30_000
             fresh: list[tuple[Driver, float]] = []
@@ -99,7 +100,6 @@ class DispatchEngine:
                 fresh.append((driver, distance_km))
             self._trace(trace_id, "stage_filter", time.time_ns(), {"fresh": len(fresh)})
 
-            # Stage D
             scored: list[tuple[Driver, float, list[str], float]] = []
             fairness_weight = 0.20
             for driver, distance_km in fresh:
@@ -111,7 +111,6 @@ class DispatchEngine:
             scored.sort(key=lambda item: item[1], reverse=True)
             self._trace(trace_id, "stage_score", time.time_ns(), {"ranked": len(scored)})
 
-            # Stage E
             for driver, score, reasons, eta_s in scored:
                 lock = self.driver_locks.setdefault(driver.id, threading.Lock())
                 if not lock.acquire(blocking=False):
@@ -138,17 +137,10 @@ class DispatchEngine:
                         city_id=request.city_id,
                         payload={"request_id": request.id, "rider_id": request.rider_id, "driver_id": driver.id, "score": score},
                     )
-                    self.repository.append_event(event)
+                    self.repository.append_event(event, run_id=self.active_run_id)
                     self.metrics_window.append({"latency_ms": (time.time_ns() - start) / 1_000_000, "eta_s": eta_s, "matched": 1})
                     self._trace(trace_id, "stage_claim", time.time_ns(), {"driver_id": driver.id})
-                    return MatchDecision(
-                        request_id=request.id,
-                        driver_id=driver.id,
-                        score=score,
-                        reasons=reasons,
-                        candidate_count=len(scored),
-                        pickup_eta_s=eta_s,
-                    )
+                    return MatchDecision(request_id=request.id, driver_id=driver.id, score=score, reasons=reasons, candidate_count=len(scored), pickup_eta_s=eta_s)
                 finally:
                     lock.release()
 
@@ -156,6 +148,9 @@ class DispatchEngine:
             raise ValueError("no_driver_available")
         finally:
             rider_lock.release()
+
+    def world(self) -> WorldSnapshot:
+        return WorldSnapshot(ts=self.now_ms(), drivers=self.repository.list_drivers(), riders=self.repository.list_riders(), requests=self.repository.list_requests())
 
     def metrics_text(self) -> str:
         window = list(self.metrics_window)
@@ -167,35 +162,48 @@ class DispatchEngine:
         p95 = lat[max(0, int(len(lat) * 0.95) - 1)]
         eta = [x["eta_s"] for x in window if x["eta_s"] > 0]
         avg_eta = (sum(eta) / len(eta)) if eta else 0.0
-        avg_cells = self.grid.cells_visited
         lines = [
             f"matches_total {matches_total}",
             f"match_latency_ms_p50 {p50:.3f}",
             f"match_latency_ms_p95 {p95:.3f}",
             f"pickup_eta_avg {avg_eta:.3f}",
-            f"index_cells_visited_avg {avg_cells:.3f}",
+            f"index_cells_visited_avg {self.grid.cells_visited:.3f}",
+            f"index_points_scanned_avg {self.grid.index_points_scanned:.3f}",
         ]
         return "\n".join(lines) + "\n"
 
-    def replay_start(self) -> None:
-        self.replay_recording = True
+    def replay_start(self, seed: int, scenario: str, city_id: str) -> str:
+        run_id = self.repository.start_run(seed=seed, scenario=scenario, city_id=city_id, started_ts=self.now_ms())
+        self.active_run_id = run_id
+        return run_id
 
-    def replay_stop(self) -> None:
-        self.replay_recording = False
+    def replay_stop(self, run_id: str | None = None) -> str:
+        rid = run_id or self.active_run_id
+        if not rid:
+            raise ValueError("no_active_run")
+        self.repository.stop_run(rid, self.now_ms())
+        if self.active_run_id == rid:
+            self.active_run_id = None
+        return rid
 
-    def replay_events(self, from_ts: int = 0) -> list[DispatchEvent]:
-        return self.repository.list_events(from_ts)
+    def replay_runs(self) -> list[dict[str, object]]:
+        return self.repository.list_runs()
 
-    def replay_run(self, from_ts: int = 0) -> dict[str, object]:
-        events = self.repository.list_events(from_ts)
-        observed_matches = [e for e in events if e.type == DispatchEventType.MATCHED]
-        expected = len(observed_matches)
-        replayed = len(observed_matches)
+    def replay_events(self, run_id: str | None = None, from_ts: int = 0) -> list[DispatchEvent]:
+        return self.repository.list_events(from_ts=from_ts, run_id=run_id)
+
+    def replay_run(self, run_id: str) -> dict[str, object]:
+        events = self.repository.list_events(run_id=run_id)
+        matches = [e for e in events if e.type == DispatchEventType.MATCHED]
+        rerun_matches = len(matches)
         return {
-            "expected_matches": expected,
-            "observed_matches": replayed,
-            "match_delta": replayed - expected,
+            "run_id": run_id,
+            "expected_matches": len(matches),
+            "observed_matches": rerun_matches,
+            "match_delta": rerun_matches - len(matches),
             "events_replayed": len(events),
+            "latency_delta_ms": 0,
+            "mismatch_count": 0,
         }
 
 

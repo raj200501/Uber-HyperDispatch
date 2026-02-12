@@ -21,6 +21,8 @@ class RiderStatus(str, Enum):
 
 
 class DispatchEventType(str, Enum):
+    DRIVER_UPDATE = "DRIVER_UPDATE"
+    RIDER_REQUEST = "RIDER_REQUEST"
     MATCHED = "MATCHED"
     CANCELED = "CANCELED"
     PICKUP = "PICKUP"

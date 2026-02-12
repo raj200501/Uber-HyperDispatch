@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from dataclasses import asdict
 from pathlib import Path
 
@@ -49,8 +50,17 @@ class DispatchRepository:
               dropoff_lat REAL,
               dropoff_lon REAL
             );
+            CREATE TABLE IF NOT EXISTS replay_runs (
+              id TEXT PRIMARY KEY,
+              seed INTEGER,
+              scenario TEXT,
+              city_id TEXT,
+              started_ts INTEGER,
+              ended_ts INTEGER
+            );
             CREATE TABLE IF NOT EXISTS dispatch_events (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
+              run_id TEXT,
               ts INTEGER,
               type TEXT,
               city_id TEXT,
@@ -136,6 +146,22 @@ class DispatchRepository:
         )
         self.conn.commit()
 
+    def list_riders(self) -> list[Rider]:
+        rows = self.conn.execute("SELECT * FROM riders").fetchall()
+        from hyperdispatch_protocol import RiderStatus
+
+        return [
+            Rider(
+                id=row["id"],
+                status=RiderStatus(row["status"]),
+                lat=row["lat"],
+                lon=row["lon"],
+                request_ts=row["request_ts"],
+                city_id=row["city_id"],
+            )
+            for row in rows
+        ]
+
     def put_request(self, request: RideRequest) -> None:
         self.conn.execute(
             """
@@ -157,15 +183,61 @@ class DispatchRepository:
         )
         self.conn.commit()
 
-    def append_event(self, event: DispatchEvent) -> None:
+    def list_requests(self) -> list[RideRequest]:
+        from hyperdispatch_protocol import RidePreferences
+
+        rows = self.conn.execute("SELECT * FROM ride_requests ORDER BY created_ts DESC").fetchall()
+        out: list[RideRequest] = []
+        for row in rows:
+            prefs = json.loads(row["preferences_json"])
+            out.append(
+                RideRequest(
+                    id=row["id"],
+                    rider_id=row["rider_id"],
+                    created_ts=row["created_ts"],
+                    max_pickup_km=row["max_pickup_km"],
+                    preferences=RidePreferences(**prefs),
+                    city_id=row["city_id"],
+                    pickup_lat=row["pickup_lat"],
+                    pickup_lon=row["pickup_lon"],
+                    dropoff_lat=row["dropoff_lat"],
+                    dropoff_lon=row["dropoff_lon"],
+                )
+            )
+        return out
+
+    def start_run(self, seed: int, scenario: str, city_id: str, started_ts: int) -> str:
+        run_id = str(uuid.uuid4())
         self.conn.execute(
-            "INSERT INTO dispatch_events(ts,type,city_id,payload_json) VALUES(?,?,?,?)",
-            (event.ts, event.type.value, event.city_id, json.dumps(event.payload)),
+            "INSERT INTO replay_runs(id,seed,scenario,city_id,started_ts,ended_ts) VALUES(?,?,?,?,?,NULL)",
+            (run_id, seed, scenario, city_id, started_ts),
+        )
+        self.conn.commit()
+        return run_id
+
+    def stop_run(self, run_id: str, ended_ts: int) -> None:
+        self.conn.execute("UPDATE replay_runs SET ended_ts=? WHERE id=?", (ended_ts, run_id))
+        self.conn.commit()
+
+    def list_runs(self) -> list[dict[str, object]]:
+        rows = self.conn.execute("SELECT * FROM replay_runs ORDER BY started_ts DESC").fetchall()
+        return [dict(r) for r in rows]
+
+    def append_event(self, event: DispatchEvent, run_id: str | None = None) -> None:
+        self.conn.execute(
+            "INSERT INTO dispatch_events(run_id,ts,type,city_id,payload_json) VALUES(?,?,?,?,?)",
+            (run_id, event.ts, event.type.value, event.city_id, json.dumps(event.payload)),
         )
         self.conn.commit()
 
-    def list_events(self, from_ts: int = 0) -> list[DispatchEvent]:
-        rows = self.conn.execute("SELECT ts,type,city_id,payload_json FROM dispatch_events WHERE ts>=? ORDER BY ts", (from_ts,)).fetchall()
+    def list_events(self, from_ts: int = 0, run_id: str | None = None) -> list[DispatchEvent]:
+        query = "SELECT ts,type,city_id,payload_json FROM dispatch_events WHERE ts>=?"
+        params: list[object] = [from_ts]
+        if run_id:
+            query += " AND run_id=?"
+            params.append(run_id)
+        query += " ORDER BY ts"
+        rows = self.conn.execute(query, tuple(params)).fetchall()
         return [
             DispatchEvent(ts=r["ts"], type=DispatchEventType(r["type"]), city_id=r["city_id"], payload=json.loads(r["payload_json"]))
             for r in rows
