@@ -18,9 +18,10 @@ jobs:
       - run: make verify
       - name: API smoke test
         run: |
-          source apps/api/.venv/bin/activate
-          uvicorn hyperdispatch_api.main:app --host 127.0.0.1 --port 8010 &
+          source .venv/bin/activate
+          export PYTHONPATH="$PWD/packages/protocol/src:$PWD/packages/geo/src:$PWD/apps/api/src:$PWD/apps/simulator/src:${PYTHONPATH:-}"
+          python -m hyperdispatch_api.server &
           PID=$!
           sleep 2
-          curl -f http://127.0.0.1:8010/healthz
+          curl -f http://127.0.0.1:8000/healthz
           kill $PID

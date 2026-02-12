@@ -1,24 +1,39 @@
 import { createContext, useContext, useReducer } from 'react'
-import type { Snapshot } from '../types'
+import type { DispatchEvent } from '../api/types'
+import { buildMockSnapshot, emptyState, type TraceSpan, type WorldState } from '../types'
 
-type State = { snapshot?: Snapshot; connected: boolean }
-type Action = { type: 'snapshot'; payload: Snapshot } | { type: 'conn'; payload: boolean }
+type Action =
+  | { type: 'snapshot'; payload: ReturnType<typeof buildMockSnapshot> }
+  | { type: 'events'; payload: DispatchEvent[] }
+  | { type: 'trace'; payload: TraceSpan }
+  | { type: 'conn'; payload: boolean }
 
-const Ctx = createContext<{state: State; dispatch: React.Dispatch<Action>} | null>(null)
+const Ctx = createContext<{ state: WorldState; dispatch: React.Dispatch<Action> } | null>(null)
 
-function reducer(state: State, action: Action): State {
-  if (action.type === 'snapshot') return { ...state, snapshot: action.payload }
-  if (action.type === 'conn') return { ...state, connected: action.payload }
-  return state
+function reducer(state: WorldState, action: Action): WorldState {
+  switch (action.type) {
+    case 'snapshot':
+      return { ...state, snapshot: action.payload }
+    case 'events':
+      return { ...state, events: action.payload.slice(0, 120) }
+    case 'trace':
+      return { ...state, traces: [action.payload, ...state.traces].slice(0, 120) }
+    case 'conn':
+      return { ...state, connected: action.payload }
+    default:
+      return state
+  }
 }
 
 export function WorldProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, { connected: false })
+  const [state, dispatch] = useReducer(reducer, { ...emptyState, snapshot: buildMockSnapshot() })
   return <Ctx.Provider value={{ state, dispatch }}>{children}</Ctx.Provider>
 }
 
 export function useWorld() {
-  const v = useContext(Ctx)
-  if (!v) throw new Error('missing provider')
-  return v
+  const value = useContext(Ctx)
+  if (!value) {
+    throw new Error('useWorld must be used inside WorldProvider')
+  }
+  return value
 }

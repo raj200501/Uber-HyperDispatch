@@ -1,0 +1,14 @@
+.venv/
+**/.venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+node_modules/
+apps/web/node_modules/
+apps/web/dist/
+dist/
+coverage/
+*.db
+*.db-shm
+*.db-wal
