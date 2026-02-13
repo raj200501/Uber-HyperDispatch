@@ -14,7 +14,7 @@ A deterministic dispatch simulation platform with a control-tower style UI, boun
 - `make demo` — run API + simulator + web
 - `make loc` — line counts by area
 
-## Interview talking points
+## Talking points
 - **Latency**: bounded candidate search with k-ring expansion and scan counters.
 - **Indexing**: O(1) insert/update/remove in `GeoGridIndex`.
 - **Replay**: deterministic replay and diff for confidence and regressions.
