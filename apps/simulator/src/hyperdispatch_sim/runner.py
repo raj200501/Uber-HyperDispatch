@@ -14,6 +14,7 @@ def main() -> None:
     parser.add_argument("--requests", type=int, default=30)
     parser.add_argument("--scenario", type=str, default="baseline_city", choices=list_scenarios())
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--steps", type=int, default=None)
     args = parser.parse_args()
 
     sim = DeterministicSim(args.seed, scenario=args.scenario)
@@ -24,6 +25,8 @@ def main() -> None:
         req = sim.request(req_idx)
         print(f"request={req.id} pickup=({req.pickup_lat:.4f},{req.pickup_lon:.4f})")
         req_idx += 1
+        if args.steps is not None and req_idx >= args.steps:
+            break
         if not args.live and req_idx >= args.requests:
             break
         time.sleep(0.2)

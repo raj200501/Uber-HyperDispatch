@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hyperdispatch_protocol import Driver, RidePreferences, RideRequest, to_dict
+from hyperdispatch_protocol import Driver, DriverStatus, RidePreferences, RideRequest, to_dict
 
 from .engine import DispatchEngine
 from .repository import DispatchRepository
@@ -23,7 +23,11 @@ class HyperDispatchApp:
         return to_dict(self.engine.world())
 
     def upsert_driver(self, payload: dict[str, object]) -> dict[str, str]:
-        driver = Driver(**payload)
+        normalized = dict(payload)
+        status = normalized.get("status")
+        if isinstance(status, str):
+            normalized["status"] = DriverStatus(status)
+        driver = Driver(**normalized)
         self.engine.add_driver(driver)
         return {"status": "ok"}
 
