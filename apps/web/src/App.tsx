@@ -4,20 +4,19 @@ import { useEventStream } from './hooks/useEventStream'
 import { useTraceStream } from './hooks/useTraceStream'
 import { useWorldStream } from './hooks/useWorldStream'
 import {
+  AnalyticsPage,
   DispatchQueuePage,
-  DriverExplorerPage,
-  GeoIndexDebuggerPage,
-  HeatmapPage,
+  DriversPage,
+  GeoDebuggerPage,
   IncidentsPage,
   LiveMapPage,
-  MatchingAnalyticsPage,
   ReplayStudioPage,
-  RiderExplorerPage,
+  RidersPage,
   SettingsPage,
   SimulatorControlPage,
+  SupplyDemandPage,
   TraceExplorerPage,
-  UiKitPage,
-} from './pages/pages'
+} from './pages'
 
 export default function App() {
   useWorldStream()
@@ -31,17 +30,16 @@ export default function App() {
           <Route path="/" element={<Navigate to="/map" />} />
           <Route path="/map" element={<LiveMapPage />} />
           <Route path="/dispatch-queue" element={<DispatchQueuePage />} />
-          <Route path="/matching-analytics" element={<MatchingAnalyticsPage />} />
-          <Route path="/heatmap" element={<HeatmapPage />} />
-          <Route path="/drivers" element={<DriverExplorerPage />} />
-          <Route path="/riders" element={<RiderExplorerPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/supply-demand" element={<SupplyDemandPage />} />
+          <Route path="/drivers" element={<DriversPage />} />
+          <Route path="/riders" element={<RidersPage />} />
           <Route path="/replay" element={<ReplayStudioPage />} />
           <Route path="/traces" element={<TraceExplorerPage />} />
           <Route path="/incidents" element={<IncidentsPage />} />
           <Route path="/simulator" element={<SimulatorControlPage />} />
-          <Route path="/geo-debugger" element={<GeoIndexDebuggerPage />} />
+          <Route path="/geo-debugger" element={<GeoDebuggerPage />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/ui-kit" element={<UiKitPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
