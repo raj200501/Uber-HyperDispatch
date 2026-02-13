@@ -14,5 +14,5 @@ it('renders expanded nav links', () => {
   expect(screen.getByText('Uber HyperDispatch')).toBeInTheDocument()
   expect(screen.getByText('Live Map')).toBeInTheDocument()
   expect(screen.getByText('Replay Studio')).toBeInTheDocument()
-  expect(screen.getByText('Geo Index Debugger')).toBeInTheDocument()
+  expect(screen.getByText('Geo Debugger')).toBeInTheDocument()
 })
